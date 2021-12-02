@@ -26,12 +26,19 @@ cat vmx.template | envsubst | tee $Name.vmx
 
 # Cidata ISO | Clodu Init | User-Data
 ```
-sudo apt install cloud-image-utils
-cat <<EOF>> user-data
+sudo apt install cloud-image-utils whois
+echo passw0rd | mkpasswd -s --method=SHA-512
+cat <<'EOF'> user-data
 #cloud-config
-password: passw0rd
+password: $6$xc3sj4biw7Uu/PB$RE9zkgAzYZhd80J5I4GU5EGzt/9hvCd/Yn0rCYc8.2m.t7hfs.xPT6m/lndEEhLnW8ADGv9PD4ESZT634TnJQ.
 chpasswd: { expire: False }
 ssh_pwauth: True
+ssh_authorized_keys:
+  - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDFOvXax9dNqU2unqd+AZQ+VSe2cZZbGMVRuzIW4Hl6Ji69R0zkWih0vuP2psRA/uWTg1XqFKisCp9Z1XQcBbH2WLhnIWhykeLOHtBdEQqUApKj+BrKnyDmBbCourUwAcuUQSRPeRBOg5hwReviIebwvELmwc8ab1r0X+nbCDwVdohTpwNnxHp5MTO0WADLdP0oDQy2hhVaiParCWdVvgfDauQ2IpgeN6tE5sUvsDyYLaYp/dIhddA/Dwh9sWEFfN7ERMSHJw/A/3GsQ49a8+w6lamgcfNDKK7hE9F5vn95fzhge0jj6Yl8NTXOzoMfpvPo3Q+uCbu+GRMlRAK3hcHP my_admin_user_pub_key
+system_info:
+  default_user:
+    name: ubuntu
+    gecos: Ubuntu
 EOF
 touch meta-data
 cloud-localds -f iso cidata.iso user-data meta-data

@@ -1,9 +1,3 @@
-cidata.iso
-meta-data
-ovftool
-ubuntu-cloud-lvm-legacy.txt
-ubuntu-vm.ova
-ubuntu-vm.vmdk
-ubuntu-vm.vmx
-user-data
-VMware-ovftool*.zip
+*
+!README.md
+!vmx.template
