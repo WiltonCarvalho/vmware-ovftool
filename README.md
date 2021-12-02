@@ -43,6 +43,7 @@ system_info:
   default_user:
     name: ubuntu
     gecos: Ubuntu
+timezone: America/Sao_Paulo
 write_files:
   - path: /etc/multipath.conf
     permissions: "0644"
@@ -69,6 +70,7 @@ write_files:
       fi
 runcmd:
   - for i in $(echo /home/*/.bashrc /etc/skel/.bashrc /root/.bashrc); do cat /opt/ps1.txt >> $i; done
+  - systemctl restart multipathd
 EOF
 touch meta-data
 cloud-localds -f iso cidata.iso user-data meta-data
