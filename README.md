@@ -24,9 +24,13 @@ VirtualHW=11
 cat vmx.template | envsubst | tee $Name.vmx
 ```
 
-# Cidata ISO | Clodu Init | User-Data
+# cloud-localds and mkpasswd commands
 ```
 sudo apt install cloud-image-utils whois
+
+```
+# Cidata ISO | Clodu Init | User-Data
+```
 echo passw0rd | mkpasswd -s --method=SHA-512
 cat <<'EOF'> user-data
 #cloud-config
@@ -39,6 +43,32 @@ system_info:
   default_user:
     name: ubuntu
     gecos: Ubuntu
+write_files:
+  - path: /etc/multipath.conf
+    permissions: "0644"
+    owner: "root"
+    content: |
+      # https://bugs.launchpad.net/ubuntu/+source/multipath-tools/+bug/1875594
+      defaults {
+          user_friendly_names yes
+      }
+      blacklist {
+          device {
+              vendor "VMware"
+              product "Virtual disk"
+          }
+      }
+  - path: /opt/ps1.txt
+    permissions: "0644"
+    owner: "root"
+    content: |
+      if [ $(id -u) -eq 0 ]; then
+        PS1='\[\e]0;\u@\h\a\]\[\033[0;31m\]\u@\h\[\033[0;35m\]$(__git_ps1)\[\033[0;36m\] ${PWD}\n\[\033[0;31m\]└─\[\033[0;31m\] \$\[\033[0;31m\] ▶\[\033[0m\] '
+      else
+        PS1='\[\e]0;\u@\h\a\]\[\033[0;32m\]\u@\h\[\033[0;35m\]$(__git_ps1)\[\033[0;36m\] ${PWD}\n\[\033[0;32m\]└─\[\033[0;32m\] \$\[\033[0;32m\] ▶\[\033[0m\] '
+      fi
+runcmd:
+  - for i in $(echo /home/*/.bashrc /etc/skel/.bashrc /root/.bashrc); do cat /opt/ps1.txt >> $i; done
 EOF
 touch meta-data
 cloud-localds -f iso cidata.iso user-data meta-data
