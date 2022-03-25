@@ -1,0 +1,175 @@
+wget https://cloud-images.ubuntu.com/releases/focal/release/ubuntu-20.04-server-cloudimg-amd64.vmdk -O ubuntu-20.04-server-cloudimg-amd64.vmdk
+modprobe nbd
+qemu-nbd -r -c /dev/nbd0 -f vmdk ubuntu-20.04-server-cloudimg-amd64.vmdk
+fdisk -l /dev/nbd0
+mount -o ro /dev/nbd0p1 /mnt
+mount -o ro /dev/nbd0p15 /mnt/boot/efi
+
+tar --numeric-owner --preserve-permissions -zcvf focal-server-cloudimg-amd64.tar.gz -C '/mnt' .
+ls -lh focal-server-cloudimg-amd64.tar.gz
+
+umount /mnt/boot/efi
+umount /mnt
+qemu-nbd -d /dev/nbd0
+
+qemu-img create -f vmdk ubuntu-template.vmdk 20G
+
+qemu-nbd -c /dev/nbd0 -f vmdk ubuntu-template.vmdk
+
+echo -e "g\nn\n15\n\n+256M\nt\n1\nn\n14\n\n+4M\nt\n14\n4\nn\n13\n\n+1G\nn\n1\n\n\nt\n1\n31\nw" | fdisk /dev/nbd0
+fdisk -l /dev/nbd0
+
+pvcreate /dev/nbd0p1
+vgcreate vg1 /dev/nbd0p1
+lvcreate -L +1G vg1 -n swap
+lvcreate -L +1G vg1 -n tmp
+lvcreate -L +1G vg1 -n home
+lvcreate -L +1G vg1 -n vartmp
+lvcreate -L +1G vg1 -n auditlog
+lvcreate -L +2G vg1 -n varlog
+lvcreate -L +4G vg1 -n var
+lvcreate -L +5G vg1 -n root
+
+mkfs.xfs -L root /dev/mapper/vg1-root
+mkswap /dev/mapper/vg1-swap
+mkfs.xfs -L BOOTFS -m uuid=eb695615-2e91-480c-9ed5-739e442ecdf9 /dev/nbd0p13
+mkfs.vfat -F 32 -n UEFI /dev/nbd0p15
+mkfs.xfs /dev/mapper/vg1-home
+mkfs.xfs /dev/mapper/vg1-varlog
+mkfs.xfs /dev/mapper/vg1-vartmp
+mkfs.xfs /dev/mapper/vg1-tmp
+mkfs.xfs /dev/mapper/vg1-var
+mkfs.xfs /dev/mapper/vg1-auditlog
+
+mount /dev/mapper/vg1-root /mnt/
+
+mkdir /mnt/boot /mnt/var /mnt/home /mnt/tmp
+mount LABEL=BOOTFS /mnt/boot
+mkdir /mnt/boot/efi
+mount LABEL=UEFI /mnt/boot/efi
+mount /dev/mapper/vg1-home /mnt/home
+mount /dev/mapper/vg1-var /mnt/var
+mkdir /mnt/var/tmp /mnt/var/log
+mount /dev/mapper/vg1-varlog /mnt/var/log
+mkdir /mnt/var/log/audit
+mount /dev/mapper/vg1-auditlog /mnt/var/log/audit
+mount /dev/mapper/vg1-vartmp /mnt/var/tmp
+chmod 1777 /mnt/var/tmp
+mount /dev/mapper/vg1-tmp /mnt/tmp
+chmod 1777 /mnt/tmp
+
+tar --numeric-owner --preserve-permissions -zxvf focal-server-cloudimg-amd64.tar.gz -C /mnt/
+
+cat <<'EOF'> /mnt/etc/fstab
+/dev/mapper/vg1-root     /               xfs   defaults 0 0
+/dev/mapper/vg1-var      /var            xfs   defaults 0 0
+/dev/mapper/vg1-home     /home           xfs   defaults,nodev 0 0
+/dev/mapper/vg1-varlog   /var/log        xfs   defaults,nosuid,nodev,noexec 0 0
+/dev/mapper/vg1-auditlog /var/log/autdit xfs   defaults,nosuid,nodev,noexec 0 0
+/dev/mapper/vg1-vartmp   /var/tmp        xfs   defaults,nosuid,nodev,noexec 0 0
+/dev/mapper/vg1-tmp      /tmp            xfs   defaults,nosuid,nodev,noexec 0 0
+/dev/mapper/vg1-swap     none            swap  sw 0 0
+LABEL="BOOTFS"           /boot           xfs   defaults 0 0
+LABEL="UEFI"             /boot/efi       vfat  umask=0077 0 0
+tmpfs                    /dev/shm        tmpfs defaults,nosuid,nodev,noexec 0 0
+EOF
+
+cat <<'EOF'> /mnt/etc/apt/apt.conf.d/50remount-tmp 
+DPkg::Pre-Install-Pkgs {"mount -o remount,rw,exec /tmp";};
+DPkg::Post-Invoke {"mount -o remount /tmp";};
+EOF
+
+cat <<'EOF'> /mnt/boot/efi/EFI/ubuntu/grub.cfg
+search.fs_uuid eb695615-2e91-480c-9ed5-739e442ecdf9 root
+set prefix=($root)'/grub'
+configfile $prefix/grub.cfg
+EOF
+
+echo "RESUME=/dev/mapper/vg1-swap" > /mnt/etc/initramfs-tools/conf.d/resume
+
+cat <<'EOF'> /mnt/etc/default/grub.d/99-custom.cfg 
+GRUB_TIMEOUT_STYLE=menu 
+GRUB_TIMEOUT=5
+GRUB_RECORDFAIL_TIMEOUT=$GRUB_TIMEOUT
+GRUB_CMDLINE_LINUX_DEFAULT="console=tty1"
+GRUB_CMDLINE_LINUX="net.ifnames=0 ipv6.disable=1 modprobe.blacklist=floppy"
+GRUB_TERMINAL="console serial"
+GRUB_SERIAL_COMMAND="serial --speed=115200"
+GRUB_DISABLE_SUBMENU=y
+GRUB_DISABLE_RECOVERY=true
+GRUB_DISABLE_OS_PROBER=true
+EOF
+
+cat <<'EOF'> /mnt/boot/grub/custom.cfg
+#set default="ubuntu-serial"
+#set timeout_style=menu
+#set timeout=5
+menuentry 'Ubuntu (Serial Console)' --id ubuntu-serial {
+  search --set=root --label BOOTFS --fs-uuid eb695615-2e91-480c-9ed5-739e442ecdf9
+  linux /vmlinuz root=/dev/mapper/vg1-root ro console=tty1 console=ttyS0 net.ifnames=0 ipv6.disable=1 modprobe.blacklist=floppy
+  initrd /initrd.img
+}
+EOF
+
+echo 'network: {config: disabled}' > /mnt/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+cat <<'EOF'> /mnt/etc/netplan/99-netcfg.yaml
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: yes
+      optional: true
+#      addresses:
+#      - 192.168.122.10/24
+#      gateway4: 192.168.122.1
+#      nameservers:
+#        addresses:
+#        - 1.1.1.1
+#        - 8.8.8.8
+EOF
+
+mkdir /mnt/etc/systemd/system/var.mount.d
+cat <<'EOF'> /mnt/etc/systemd/system/var.mount.d/override.conf
+# Workaround: /var stays busy at shutdown due to journald
+# https://github.com/systemd/systemd/issues/867
+[Mount]
+LazyUnmount=yes
+EOF
+
+cat <<'EOF'> /etc/multipath.conf
+# https://bugs.launchpad.net/ubuntu/+source/multipath-tools/+bug/1875594
+defaults {
+    user_friendly_names yes
+}
+blacklist {
+    device {
+        vendor "VMware"
+        product "Virtual disk"
+    }
+}
+EOF
+
+for i in sys proc run dev dev/pts; do mount -o bind /$i /mnt/$i; done
+
+chroot /mnt
+
+update-initramfs -u
+update-grub
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --recheck
+grub-install --target=i386-pc --boot-directory=/boot --recheck /dev/nbd0
+
+exit
+
+for i in sys proc run dev/pts dev; do umount /mnt/$i; done
+
+umount /mnt/boot/efi /mnt/boot/ /mnt/var/log/audit /mnt/var/log /mnt/var/tmp /mnt/var /mnt/tmp /mnt/home /mnt/
+
+df -h | grep mnt
+
+vgchange -a n vg1
+qemu-nbd -d /dev/nbd0
+
+ip tuntap add tap0 mode tap
+brctl addif virbr0 tap0
+cp ubuntu-template.vmdk test.vmdk
+kvm -cpu kvm64 -smp 2 -m 1024m -net nic,model=virtio -net tap,ifname=tap0 -drive file=test.vmdk,format=vmdk,if=virtio -cdrom cidata.iso --nographic

@@ -2,7 +2,8 @@
 https://github.com/hashicorp/packer/blob/20541a7eda085aa5cf35bfed5069592ca49d106e/builder/vmware/step_create_vmx.go#L84
 
 # OVF Tool Download
-https://code.vmware.com/web/tool/4.3.0/ovf
+https://code.vmware.com/web/tool/4.4.0/ovf
+https://developer.vmware.com/web/tool/4.4.0/ovf
 
 # OVFTool Installation
 ```
@@ -18,7 +19,7 @@ https://kb.vmware.com/s/article/1003746
 # Create the VMX File
 ```
 set -a
-Name=ubuntu-vm
+Name=ubuntu-template
 GuestOS=ubuntu-64
 VirtualHW=11
 cat vmx.template | envsubst | tee $Name.vmx
@@ -34,11 +35,11 @@ sudo apt install cloud-image-utils whois
 echo passw0rd | mkpasswd -s --method=SHA-512
 cat <<'EOF'> user-data
 #cloud-config
-password: $6$xc3sj4biw7Uu/PB$RE9zkgAzYZhd80J5I4GU5EGzt/9hvCd/Yn0rCYc8.2m.t7hfs.xPT6m/lndEEhLnW8ADGv9PD4ESZT634TnJQ.
+password: $6$BliEDnYgfJM3$xkQF9L9ohnWLeh6lyr3iuiekkwlWQj0jH2T.xIdOdZVQHk7ti1K8pQNA0GzmKmmBbxWUxlmFduvI.ZT2T9VMM.
 chpasswd: { expire: False }
 ssh_pwauth: True
 ssh_authorized_keys:
-  - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDFOvXax9dNqU2unqd+AZQ+VSe2cZZbGMVRuzIW4Hl6Ji69R0zkWih0vuP2psRA/uWTg1XqFKisCp9Z1XQcBbH2WLhnIWhykeLOHtBdEQqUApKj+BrKnyDmBbCourUwAcuUQSRPeRBOg5hwReviIebwvELmwc8ab1r0X+nbCDwVdohTpwNnxHp5MTO0WADLdP0oDQy2hhVaiParCWdVvgfDauQ2IpgeN6tE5sUvsDyYLaYp/dIhddA/Dwh9sWEFfN7ERMSHJw/A/3GsQ49a8+w6lamgcfNDKK7hE9F5vn95fzhge0jj6Yl8NTXOzoMfpvPo3Q+uCbu+GRMlRAK3hcHP my_admin_user_pub_key
+  - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC6lrQ+ZcjqHCKt0nmxWvkIRQIYCoiyr371Ytqs90trnOUPDfWlfW4nRRY3qXSQySw1YU+slcuamoS4hcOm0qsVvrnyLp35HFKL+A5v+rJfB1ZS+GQ8smEf6RAzfvvAk4zMYglNcC1uWTsH8W3WQPbh6Lb5y+Oipi8TJo/8FEyX5rKTNRWkf+FsB7Dm3xXfJB7zpTOXdEobMrCmqYJDVBGNFmEFUrUKdt96abC1YetIcTucHBJndbtn59hC3SOx6QbkcdYC94+geYDOQGE1RbMozBK5vKKt4C6Kgd/u2ngaTxqwDhc/FZTVtQLywnHYTx0hghyOf9SoOicGQOslndw/ my_ssh_pub_key
 system_info:
   default_user:
     name: ubuntu
@@ -68,8 +69,34 @@ write_files:
       else
         PS1='\[\e]0;\u@\h\a\]\[\033[0;32m\]\u@\h\[\033[0;35m\]$(__git_ps1)\[\033[0;36m\] ${PWD}\n\[\033[0;32m\]└─\[\033[0;32m\] \$\[\033[0;32m\] ▶\[\033[0m\] '
       fi
+  - path: /etc/profile.d/custom.sh
+    permissions: "0755"
+    owner: "root"
+    content: |
+      HISTTIMEFORMAT="%Y-%m-%d %H:%M:%S | "
+      TMOUT=0
+      HISTCONTROL=ignoredups:ignorespace
+      HISTSIZE=200000
+      HISTFILESIZE=-1
+      HISTFILE=$HOME/.bash_history
+      export HISTTIMEFORMAT TMOUT HISTCONTROL HISTSIZE HISTFILESIZE HISTFILE
+      readonly HISTTIMEFORMAT TMOUT HISTCONTROL HISTSIZE HISTFILESIZE HISTFILE
+      alias rm='rm -I --preserve-root'
+      alias mv='mv -i'
+      alias cp='cp -i'
+      alias ln='ln -i'
+      alias chown='chown --preserve-root'
+      alias chmod='chmod --preserve-root'
+      alias chgrp='chgrp --preserve-root'
+      alias grep='grep --color=auto'
+  - path: /etc/sudoers.d/90-sudo
+    permissions: "0644"
+    owner: "root"
+    content: |
+      %sudo ALL=NOPASSWD: ALL
 runcmd:
   - for i in $(echo /home/*/.bashrc /etc/skel/.bashrc /root/.bashrc); do cat /opt/ps1.txt >> $i; done
+  - sed -i '/HIST/d' /home/*/.bashrc /etc/skel/.bashrc /root/.bashrc
   - systemctl restart multipathd
 EOF
 touch meta-data
